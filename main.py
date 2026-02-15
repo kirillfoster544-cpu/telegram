@@ -25,7 +25,9 @@ if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN is empty. Set Railway variable BOT_TOKEN")
 
 # HTML нужен для <blockquote> как на фото
-bot = Bot(BOT_TOKEN, parse_mode="HTML")
+from aiogram.client.default import DefaultBotProperties
+
+bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
 dp = Dispatcher()
 
 TTL_SECONDS = 15 * 60  # окно на отправку после открытия ссылки
