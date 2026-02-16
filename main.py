@@ -363,9 +363,23 @@ async def ui_home(call: CallbackQuery):
         f"{quote_link_block(link)}\n\n"
         "Разместите эту ссылку ☝️ в описании своего профиля Telegram, TikTok, Instagram (stories), "
         "чтобы вам могли написать 💬\n\n"
-       
     )
     await call.message.edit_text(text, reply_markup=await kb_home(call.from_user.id))
+    await call.answer()
+
+
+# 👇 ВСТАВЬ СЮДА ↓↓↓
+
+@dp.callback_query(F.data.startswith("reply:"))
+async def reply_start(call: CallbackQuery):
+    sender_id = int(call.data.split(":")[1])
+
+    # Бот теперь будет ждать ответ
+    set_pending(call.from_user.id, sender_id)
+
+    await call.message.answer(
+        "✍️ Напишите ответ — он будет отправлен анонимно."
+    )
     await call.answer()
 
 
@@ -546,12 +560,21 @@ async def on_message(message: Message):
 
     to_id = int(p["to_id"])
 
-    # Отправка получателю (анонимно)
-    await bot.send_message(
-        to_id,
-        "📩 Вам пришло анонимное сообщение:\n\n"
-        f"{text}"
-    )
+        # Отправка получателю (анонимно) + кнопка "Ответить"
+    # Отправка получателю (анонимно) + кнопка "Ответить"
+reply_kb = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(
+        text="💬 Ответить",
+        callback_data=f"reply:{message.from_user.id}"
+    )]
+])
+
+await bot.send_message(
+    to_id,
+    "📩 Вам пришло анонимное сообщение:\n\n"
+    f"{text}",
+    reply_markup=reply_kb
+)
 
     # Статы получателя (сообщение ему пришло)
     inc_msg(to_id)
