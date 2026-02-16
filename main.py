@@ -27,8 +27,10 @@ if not BOT_TOKEN:
 bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
 dp = Dispatcher()
 
-TTL_SECONDS = 15 * 60  # 15 минут на продолжение после открытия ссылки
+TTL_SECONDS = 15 * 60  # 15 минут окно после открытия ссылки
 
+# короткое уведомление (нужно, если есть админ-логи)
+LOG_NOTICE = "ℹ️ Сообщения могут логироваться модератором."
 
 # =========================
 # DB
@@ -51,7 +53,6 @@ def init_db():
             username TEXT,
             full_name TEXT,
             code TEXT UNIQUE,
-            lang TEXT DEFAULT 'ru',
             created_at INTEGER
         );
         """)
@@ -201,13 +202,13 @@ def log_message(from_id: int, to_id: int, text: str):
         con.commit()
 
 
-def last_logs(limit: int = 20):
+def last_logs(limit: int = 25):
     with db() as con:
         return con.execute("SELECT * FROM logs ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
 
 
 # =========================
-# HELPERS / UI
+# UI helpers
 # =========================
 def quote_link_block(link: str) -> str:
     return f"<blockquote><code>{link}</code></blockquote>"
@@ -219,16 +220,11 @@ def extract_code_from_link(text: str) -> str | None:
 
 
 def format_user(u) -> str:
-    """
-    Красиво + кликабельно:
-    @username (id) или Full Name (id)
-    """
     if not u:
         return "unknown"
     uid = int(u["user_id"])
     uname = (u["username"] or "").strip()
     full = (u["full_name"] or "").strip()
-
     if uname:
         return f"<a href='tg://user?id={uid}'>@{uname}</a> ({uid})"
     name = full if full else "user"
@@ -250,7 +246,6 @@ async def kb_home(user_id: int) -> InlineKeyboardMarkup:
     me = await bot.get_me()
     link = await get_my_link(user_id)
     group_link = f"https://t.me/{me.username}?startgroup=1"
-
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔗 Поделиться ссылкой", url=share_url(link))],
         [InlineKeyboardButton(text="➕ Добавить бота в группу", url=group_link)],
@@ -282,7 +277,6 @@ def kb_reply(sender_id: int) -> InlineKeyboardMarkup:
 async def send_admin_log(from_id: int, to_id: int, text: str):
     fu = get_user(from_id)
     tu = get_user(to_id)
-
     msg = (
         "🛡 <b>ADMIN LOG</b>\n\n"
         f"👤 От: {format_user(fu)}\n"
@@ -298,12 +292,11 @@ def start_text(link: str) -> str:
         "Ваша ссылка:\n"
         f"{quote_link_block(link)}\n\n"
         "Разместите эту ссылку ☝️ в описании своего профиля Telegram, TikTok, Instagram (stories), "
-        "чтобы вам могли написать 💬\n\n"
-        f"{ADMIN_NOTICE}"
+        "чтобы вам могли написать 💬"
     )
 
 
-WRITE_TEXT = "✍️ Напишите ваше сообщение — оно будет отправлено анонимно.\n\n" + ADMIN_NOTICE
+WRITE_TEXT = "✍️ Напишите ваше сообщение — оно будет отправлено анонимно.\n\n" + LOG_NOTICE
 
 
 # =========================
@@ -322,7 +315,6 @@ async def start(message: Message):
     parts = (message.text or "").split(maxsplit=1)
     target_code = parts[1].strip().lower() if len(parts) > 1 else ""
 
-    # пришли по чужой ссылке -> ждём текст
     if target_code:
         target = get_user_by_code(target_code)
         if target and int(target["user_id"]) != message.from_user.id:
@@ -360,10 +352,8 @@ async def ui_stats(call: CallbackQuery):
         f"💬 Сообщений: <b>{st['msgs_total']}</b>\n"
         f"👀 Переходов по ссылке: <b>{st['link_clicks_total']}</b>\n\n"
         "Ваша ссылка:\n"
-        f"{quote_link_block(link)}\n\n"
-        f"{ADMIN_NOTICE}"
+        f"{quote_link_block(link)}"
     )
-
     await call.message.edit_text(text, reply_markup=kb_back_home())
     await call.answer()
 
@@ -372,12 +362,9 @@ async def ui_stats(call: CallbackQuery):
 async def ui_help(call: CallbackQuery):
     text = (
         "ℹ️ <b>Помощь</b>\n\n"
-        "Как получать сообщения:\n"
-        "1) Нажмите /start и возьмите свою ссылку.\n"
-        "2) Разместите ссылку в профиле/сторис.\n\n"
-        "Как написать человеку:\n"
-        "— откройте его ссылку и напишите сообщение.\n\n"
-        f"{ADMIN_NOTICE}"
+        "1) Возьмите свою ссылку через /start.\n"
+        "2) Разместите её в профиле/сторис.\n"
+        "3) Люди пишут вам анонимно.\n"
     )
     await call.message.edit_text(text, reply_markup=kb_back_home())
     await call.answer()
@@ -400,45 +387,13 @@ async def ui_write_more(call: CallbackQuery):
 async def reply_start(call: CallbackQuery):
     sender_id = int(call.data.split(":", 1)[1])
     set_pending(call.from_user.id, sender_id)
-    await call.message.answer("✍️ Напишите ответ — он будет отправлен анонимно.\n\n" + ADMIN_NOTICE)
+    await call.message.answer("✍️ Напишите ответ — он будет отправлен анонимно.")
     await call.answer()
 
 
 # =========================
 # Commands
 # =========================
-@dp.message(Command("help"))
-async def cmd_help(message: Message):
-    await message.answer(
-        "ℹ️ <b>Помощь</b>\n\n"
-        "Команды:\n"
-        "/start — ваша ссылка\n"
-        "/stats — статистика\n"
-        "/help — помощь\n\n"
-        f"{ADMIN_NOTICE}"
-    )
-
-
-@dp.message(Command("stats"))
-async def cmd_stats(message: Message):
-    st = get_stats(message.from_user.id)
-    link = await get_my_link(message.from_user.id)
-
-    await message.answer(
-        "📊 <b>Статистика</b>\n\n"
-        "Сегодня:\n"
-        f"💬 Сообщений: <b>{st['msgs_today']}</b>\n"
-        f"👀 Переходов по ссылке: <b>{st['link_clicks_today']}</b>\n\n"
-        "За всё время:\n"
-        f"💬 Сообщений: <b>{st['msgs_total']}</b>\n"
-        f"👀 Переходов по ссылке: <b>{st['link_clicks_total']}</b>\n\n"
-        "Ваша ссылка:\n"
-        f"{quote_link_block(link)}\n\n"
-        f"{ADMIN_NOTICE}",
-        reply_markup=await kb_home(message.from_user.id),
-    )
-
-
 @dp.message(Command("admin"))
 async def cmd_admin(message: Message):
     if message.from_user.id != ADMIN_ID:
@@ -469,19 +424,16 @@ async def cmd_admin(message: Message):
 async def on_message(message: Message):
     init_db()
 
-    # Если человек прислал ссылку текстом — подсказка
     code_from_link = extract_code_from_link(message.text or "")
     if code_from_link:
         await message.answer("Открой эту ссылку (нажми на неё), затем напиши сообщение в боте.")
         return
 
-    # Должен быть pending
     p = get_pending(message.from_user.id)
     if not p:
         await message.answer("Чтобы написать человеку — открой его ссылку (t.me/бот?start=код).")
         return
 
-    # TTL
     if int(time.time()) - int(p["created_at"]) > TTL_SECONDS:
         clear_pending(message.from_user.id)
         await message.answer("⏳ Время истекло. Открой ссылку человека заново.")
@@ -494,7 +446,6 @@ async def on_message(message: Message):
 
     to_id = int(p["to_id"])
 
-    # Отправка получателю + кнопка "Ответить"
     await bot.send_message(
         to_id,
         "📩 Вам пришло анонимное сообщение:\n\n"
@@ -502,17 +453,13 @@ async def on_message(message: Message):
         reply_markup=kb_reply(sender_id=message.from_user.id),
     )
 
-    # Статы получателя
     inc_msg(to_id)
 
-    # Лог в базу + админу
     log_message(message.from_user.id, to_id, text)
     await send_admin_log(message.from_user.id, to_id, text)
 
-    # Ответ отправителю
     await message.answer("✅ Сообщение отправлено, ожидайте ответ!", reply_markup=kb_write_more())
 
-    # Продлим pending
     set_pending(message.from_user.id, to_id)
 
 
