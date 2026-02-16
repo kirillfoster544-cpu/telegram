@@ -444,16 +444,95 @@ async def on_message(message: Message):
         await message.answer("Пустое сообщение не отправляю.")
         return
 
-    to_id = int(p["to_id"])
+        to_id = int(p["to_id"])
 
-    await bot.send_message(
-        to_id,
-        "📩 Вам пришло анонимное сообщение:\n\n"
-        f"{text}",
-        reply_markup=kb_reply(sender_id=message.from_user.id),
-    )
+    reply_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text="💬 Ответить",
+            callback_data=f"reply:{message.from_user.id}"
+        )]
+    ])
+
+    sent_any = False
+    log_text = ""
+
+    # ТЕКСТ
+    if message.text and message.text.strip():
+        text = message.text.strip()
+        await bot.send_message(
+            to_id,
+            "📩 Вам пришло анонимное сообщение:\n\n" + text,
+            reply_markup=reply_kb
+        )
+        sent_any = True
+        log_text = text
+
+    # ФОТО
+    elif message.photo:
+        caption = (message.caption or "").strip()
+        await bot.send_photo(
+            to_id,
+            photo=message.photo[-1].file_id,
+            caption=("📩 Вам пришло анонимное фото.\n\n" + caption) if caption else "📩 Вам пришло анонимное фото.",
+            reply_markup=reply_kb
+        )
+        sent_any = True
+        log_text = "[photo] " + caption
+
+    # СТИКЕР
+    elif message.sticker:
+        await bot.send_message(to_id, "📩 Вам пришёл анонимный стикер:", reply_markup=reply_kb)
+        await bot.send_sticker(to_id, message.sticker.file_id)
+        sent_any = True
+        log_text = "[sticker]"
+
+    # ВИДЕО
+    elif message.video:
+        caption = (message.caption or "").strip()
+        await bot.send_video(
+            to_id,
+            video=message.video.file_id,
+            caption=("📩 Вам пришло анонимное видео.\n\n" + caption) if caption else "📩 Вам пришло анонимное видео.",
+            reply_markup=reply_kb
+        )
+        sent_any = True
+        log_text = "[video] " + caption
+
+    # ГОЛОСОВОЕ
+    elif message.voice:
+        await bot.send_voice(
+            to_id,
+            voice=message.voice.file_id,
+            caption="📩 Вам пришло анонимное голосовое.",
+            reply_markup=reply_kb
+        )
+        sent_any = True
+        log_text = "[voice]"
+
+    # ФАЙЛ
+    elif message.document:
+        caption = (message.caption or "").strip()
+        await bot.send_document(
+            to_id,
+            document=message.document.file_id,
+            caption=("📩 Вам пришёл анонимный файл.\n\n" + caption) if caption else "📩 Вам пришёл анонимный файл.",
+            reply_markup=reply_kb
+        )
+        sent_any = True
+        log_text = "[document] " + caption
+
+    if not sent_any:
+        await message.answer("Я могу отправлять текст, фото, стикеры, видео, голосовые и файлы.")
+        return
 
     inc_msg(to_id)
+
+    log_message(message.from_user.id, to_id, log_text)
+    await send_admin_log(message.from_user.id, to_id, log_text)
+
+    await message.answer("✅ Отправлено!", reply_markup=kb_write_more())
+
+    set_pending(message.from_user.id, to_id)
 
     log_message(message.from_user.id, to_id, text)
     await send_admin_log(message.from_user.id, to_id, text)
